@@ -1,8 +1,9 @@
+
 import React, { useState, useEffect } from 'react';
 import { db } from '../services/db';
 import { generateReport } from '../services/geminiService';
 import { jsPDF } from 'jspdf';
-import { FileText, Download, Loader2, Calendar } from 'lucide-react';
+import { FileText, Download, Loader2, Calendar, ListChecks } from 'lucide-react';
 
 const Reports: React.FC = () => {
   const [reportType, setReportType] = useState('Monthly');
@@ -15,6 +16,7 @@ const Reports: React.FC = () => {
   const [endDate, setEndDate] = useState('');
   const [reportContent, setReportContent] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isExportingList, setIsExportingList] = useState(false);
 
   useEffect(() => {
     const today = new Date();
@@ -102,53 +104,184 @@ const Reports: React.FC = () => {
     doc.save(`${reportType}_Report_${endDate}.pdf`);
   };
 
+  const handleExportSimplePDF = async () => {
+    if (!startDate || !endDate) return;
+    setIsExportingList(true);
+
+    try {
+      const [goals, achievements] = await Promise.all([
+          db.getGoals(),
+          db.getAchievements()
+      ]);
+
+      // Filter Data
+      const finishedGoals = goals.filter(g => 
+          g.isCompleted && 
+          g.completedAt && 
+          g.completedAt >= startDate && 
+          g.completedAt <= endDate
+      );
+
+      const finishedAchievements = achievements.filter(a => 
+          a.date >= startDate && 
+          a.date <= endDate
+      );
+
+      // Generate PDF
+      const doc = new jsPDF();
+      let y = 20;
+      const margin = 20;
+      const contentWidth = 170;
+      const pageHeight = doc.internal.pageSize.height;
+
+      // Header
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(18);
+      doc.text("Completed Items List", margin, y);
+      y += 8;
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(100);
+      doc.text(`Period: ${startDate} to ${endDate}`, margin, y);
+      y += 15;
+      doc.setTextColor(0);
+
+      // Goals Section
+      if (finishedGoals.length > 0) {
+        doc.setFontSize(14);
+        doc.setFont("helvetica", "bold");
+        doc.text("Finished Goals", margin, y);
+        y += 8;
+
+        finishedGoals.forEach(g => {
+            if (y > pageHeight - 20) { doc.addPage(); y = 20; }
+            
+            doc.setFontSize(11);
+            doc.setFont("helvetica", "bold");
+            doc.text(`• ${g.title}`, margin, y);
+            y += 5;
+            
+            if (g.description) {
+                doc.setFontSize(10);
+                doc.setFont("helvetica", "normal");
+                const descLines = doc.splitTextToSize(g.description, contentWidth - 5);
+                doc.text(descLines, margin + 5, y);
+                y += (descLines.length * 4) + 4;
+            } else {
+                y += 4;
+            }
+        });
+        y += 10;
+      }
+
+      // Achievements Section
+      if (finishedAchievements.length > 0) {
+        if (y > pageHeight - 30) { doc.addPage(); y = 20; }
+
+        doc.setFontSize(14);
+        doc.setFont("helvetica", "bold");
+        doc.text("Achievements Logged", margin, y);
+        y += 8;
+
+        finishedAchievements.forEach(a => {
+            if (y > pageHeight - 20) { doc.addPage(); y = 20; }
+            
+            doc.setFontSize(11);
+            doc.setFont("helvetica", "bold");
+            doc.text(`• ${a.title}`, margin, y);
+            y += 5;
+            
+            if (a.description) {
+                doc.setFontSize(10);
+                doc.setFont("helvetica", "normal");
+                const descLines = doc.splitTextToSize(a.description, contentWidth - 5);
+                doc.text(descLines, margin + 5, y);
+                y += (descLines.length * 4) + 4;
+            } else {
+                y += 4;
+            }
+        });
+      }
+
+      if (finishedGoals.length === 0 && finishedAchievements.length === 0) {
+          doc.setFont("helvetica", "italic");
+          doc.text("No completed items found for this period.", margin, y);
+      }
+
+      doc.save(`Completed_Items_${endDate}.pdf`);
+
+    } catch (error) {
+        console.error(error);
+        alert("Failed to export list.");
+    } finally {
+        setIsExportingList(false);
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-20">
       <h1 className="text-2xl font-bold text-gray-800">Performance Reports</h1>
       
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="md:col-span-1 bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-fit">
-            <h2 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                <FileText size={20} className="text-primary" /> Report Settings
-            </h2>
-            <div className="space-y-4">
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-                    <select value={reportType} onChange={e => setReportType(e.target.value)} className="w-full border rounded-md p-2 bg-gray-50 focus:ring-primary focus:border-primary">
-                        <option>Weekly</option>
-                        <option>Monthly</option>
-                        <option>Quarterly</option>
-                    </select>
-                </div>
-                {/* Date Pickers (Same as before) */}
-                <div className="bg-gray-50 p-3 rounded-lg border border-gray-100">
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2 flex items-center gap-1"><Calendar size={12} /> Period Selection</label>
-                    {reportType === 'Weekly' && (
-                        <div><input type="date" value={selectedDateForWeek} onChange={e => setSelectedDateForWeek(e.target.value)} className="w-full border rounded-md p-2 bg-white text-sm" /></div>
-                    )}
-                    {reportType === 'Monthly' && (
-                        <div><input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-full border rounded-md p-2 bg-white text-sm" /></div>
-                    )}
-                    {reportType === 'Quarterly' && (
-                        <div className="flex gap-2">
-                            <select value={selectedYear} onChange={e => setSelectedYear(parseInt(e.target.value))} className="w-full border rounded-md p-2 bg-white text-sm">{[0, 1, 2, -1, -2].map(o => <option key={o} value={new Date().getFullYear() - o}>{new Date().getFullYear() - o}</option>)}</select>
-                            <select value={selectedQuarter} onChange={e => setSelectedQuarter(e.target.value)} className="w-full border rounded-md p-2 bg-white text-sm"><option value="1">Q1</option><option value="2">Q2</option><option value="3">Q3</option><option value="4">Q4</option></select>
-                        </div>
-                    )}
-                    <div className="mt-3 pt-3 border-t border-gray-200"><p className="text-xs text-gray-400">Range:</p><p className="text-xs font-semibold text-primary">{startDate} to {endDate}</p></div>
-                </div>
+        <div className="md:col-span-1 space-y-6">
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                <h2 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                    <FileText size={20} className="text-primary" /> AI Report Settings
+                </h2>
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                        <select value={reportType} onChange={e => setReportType(e.target.value)} className="w-full border rounded-md p-2 bg-gray-50 focus:ring-primary focus:border-primary">
+                            <option>Weekly</option>
+                            <option>Monthly</option>
+                            <option>Quarterly</option>
+                        </select>
+                    </div>
+                    
+                    <div className="bg-gray-50 p-3 rounded-lg border border-gray-100">
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2 flex items-center gap-1"><Calendar size={12} /> Period Selection</label>
+                        {reportType === 'Weekly' && (
+                            <div><input type="date" value={selectedDateForWeek} onChange={e => setSelectedDateForWeek(e.target.value)} className="w-full border rounded-md p-2 bg-white text-sm" /></div>
+                        )}
+                        {reportType === 'Monthly' && (
+                            <div><input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-full border rounded-md p-2 bg-white text-sm" /></div>
+                        )}
+                        {reportType === 'Quarterly' && (
+                            <div className="flex gap-2">
+                                <select value={selectedYear} onChange={e => setSelectedYear(parseInt(e.target.value))} className="w-full border rounded-md p-2 bg-white text-sm">{[0, 1, 2, -1, -2].map(o => <option key={o} value={new Date().getFullYear() - o}>{new Date().getFullYear() - o}</option>)}</select>
+                                <select value={selectedQuarter} onChange={e => setSelectedQuarter(e.target.value)} className="w-full border rounded-md p-2 bg-white text-sm"><option value="1">Q1</option><option value="2">Q2</option><option value="3">Q3</option><option value="4">Q4</option></select>
+                            </div>
+                        )}
+                        <div className="mt-3 pt-3 border-t border-gray-200"><p className="text-xs text-gray-400">Range:</p><p className="text-xs font-semibold text-primary">{startDate} to {endDate}</p></div>
+                    </div>
 
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Tone</label>
-                    <select value={tone} onChange={e => setTone(e.target.value)} className="w-full border rounded-md p-2 bg-gray-50">
-                        <option>Manager-ready</option>
-                        <option>Casual</option>
-                        <option>Concise</option>
-                    </select>
-                </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Tone</label>
+                        <select value={tone} onChange={e => setTone(e.target.value)} className="w-full border rounded-md p-2 bg-gray-50">
+                            <option>Manager-ready</option>
+                            <option>Casual</option>
+                            <option>Concise</option>
+                        </select>
+                    </div>
 
-                <button onClick={handleGenerate} disabled={isGenerating || !startDate || !endDate} className="w-full bg-primary text-white py-2 rounded-lg font-medium hover:bg-blue-600 disabled:opacity-50 flex justify-center items-center gap-2 shadow-sm">
-                    {isGenerating ? <Loader2 className="animate-spin" size={18} /> : 'Generate Report'}
+                    <button onClick={handleGenerate} disabled={isGenerating || !startDate || !endDate} className="w-full bg-primary text-white py-2 rounded-lg font-medium hover:bg-blue-600 disabled:opacity-50 flex justify-center items-center gap-2 shadow-sm">
+                        {isGenerating ? <Loader2 className="animate-spin" size={18} /> : 'Generate AI Report'}
+                    </button>
+                </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                <h2 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                    <ListChecks size={20} className="text-green-600" /> Quick Exports
+                </h2>
+                <p className="text-xs text-gray-500 mb-4">Download a simple list of items finished during the selected period.</p>
+                <button 
+                    onClick={handleExportSimplePDF} 
+                    disabled={isExportingList || !startDate || !endDate} 
+                    className="w-full bg-white border border-gray-300 text-gray-700 py-2 rounded-lg font-medium hover:bg-gray-50 disabled:opacity-50 flex justify-center items-center gap-2"
+                >
+                    {isExportingList ? <Loader2 className="animate-spin" size={16} /> : <Download size={16} />} 
+                    Export Completed List (PDF)
                 </button>
             </div>
         </div>
