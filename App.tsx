@@ -10,6 +10,7 @@ import Achievements from './pages/Achievements';
 import Reports from './pages/Reports';
 import Personal from './pages/Personal';
 import Tasks from './pages/Tasks';
+import Profile from './pages/Profile';
 import Layout from './components/Layout';
 
 interface AuthContextType {
@@ -17,6 +18,7 @@ interface AuthContextType {
   login: (email: string, password?: string) => void;
   signup: (name: string, email: string, password?: string) => void;
   logout: () => void;
+  refreshUser: () => void;
 }
 
 const AuthContext = createContext<AuthContextType>(null!);
@@ -36,6 +38,11 @@ const App: React.FC = () => {
       db.seed();
     }
   }, []);
+
+  const refreshUser = () => {
+    const currentUser = db.getCurrentUser();
+    if (currentUser) setUser(currentUser);
+  }
 
   const login = (email: string, password?: string) => {
     try {
@@ -63,7 +70,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, signup, logout }}>
+    <AuthContext.Provider value={{ user, login, signup, logout, refreshUser }}>
       <HashRouter>
         <Routes>
           <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
@@ -75,6 +82,7 @@ const App: React.FC = () => {
             <Route path="achievements" element={<Achievements />} />
             <Route path="reports" element={<Reports />} />
             <Route path="personal" element={<Personal />} />
+            <Route path="profile" element={<Profile />} />
           </Route>
         </Routes>
       </HashRouter>

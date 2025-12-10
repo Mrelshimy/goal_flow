@@ -3,6 +3,8 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  avatar?: string; // Base64 image string
+  title?: string; // Job Title
 }
 
 export enum GoalCategory {

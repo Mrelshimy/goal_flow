@@ -11,7 +11,8 @@ const MOCK_USER: DBUser = {
   id: 'user-1',
   name: 'Alex Johnson',
   email: 'alex@example.com',
-  password: 'password123'
+  password: 'password123',
+  title: 'Senior Engineer'
 };
 
 const STORAGE_KEYS = {
@@ -111,6 +112,39 @@ class DBService {
   getCurrentUser(): User | null {
     const data = localStorage.getItem(STORAGE_KEYS.USER);
     return data ? JSON.parse(data) : null;
+  }
+
+  updateUser(updates: Partial<User> & { password?: string }): User {
+    const currentUser = this.getCurrentUser();
+    if (!currentUser) throw new Error("No active session");
+
+    const allUsers = this.getAllUsers();
+    const userIndex = allUsers.findIndex(u => u.id === currentUser.id);
+
+    if (userIndex === -1) throw new Error("User record not found");
+
+    const existingUser = allUsers[userIndex];
+
+    // Prepare updated user object
+    const updatedDBUser: DBUser = {
+        ...existingUser,
+        ...updates,
+        // Only update password if provided and not empty
+        password: updates.password ? this.hashPassword(updates.password) : existingUser.password
+    };
+    
+    // Remove password from updates object so it doesn't leak into the session object if we were doing object spread blindly on a User type
+    // (Though TS protects us, runtime safety is good)
+    
+    // Save to permanent storage
+    allUsers[userIndex] = updatedDBUser;
+    this.saveRaw(STORAGE_KEYS.USERS, allUsers);
+
+    // Update Session
+    const { password: _, ...userSession } = updatedDBUser;
+    localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(userSession));
+
+    return userSession;
   }
 
   // --- Goals ---
