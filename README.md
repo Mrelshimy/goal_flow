@@ -1,20 +1,23 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# GoalFlow
 
-# Run and deploy your AI Studio app
+GoalFlow is a goals & achievements tracking platform focused on career advancement and performance reporting. It lets users set goals, log achievements, track KPIs, and automatically generate weekly/monthly/quarterly reports using AI.
 
-This contains everything you need to run your app locally.
+## Features
 
-View your app in AI Studio: https://ai.studio/apps/drive/11KMGeGsEJiex9if5Ehk3IuiCaJQsyqkP
+- **Goals Management**: Create, edit, and track goals with AI-generated milestones.
+- **Achievement Logging**: Log achievements and get AI-generated summaries and classifications.
+- **Task Management**: Google Tasks-style lists and task tracking.
+- **AI Reporting**: Generate PDF reports for performance reviews based on your data.
+- **Personal Dashboard**: Track habits and get AI reflections.
 
-## Run Locally
+## Tech Stack
 
-**Prerequisites:**  Node.js
+- React + Vite
+- Tailwind CSS
+- Google Gemini API (@google/genai)
+- Recharts
+- jsPDF
 
+## Deployment
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+This project is configured for deployment on Vercel.
