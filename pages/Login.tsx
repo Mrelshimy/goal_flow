@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { useAuth } from '../App';
 import { User, Lock, Mail } from 'lucide-react';
@@ -13,11 +14,11 @@ const Login: React.FC = () => {
     e.preventDefault();
     if (isSignup) {
         if (name && email && password) {
-            signup(name, email);
+            signup(name, email, password);
         }
     } else {
         if (email && password) {
-            login(email);
+            login(email, password);
         }
     }
   };

@@ -14,8 +14,8 @@ import Layout from './components/Layout';
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string) => void;
-  signup: (name: string, email: string) => void;
+  login: (email: string, password?: string) => void;
+  signup: (name: string, email: string, password?: string) => void;
   logout: () => void;
 }
 
@@ -32,23 +32,25 @@ const App: React.FC = () => {
     if (currentUser) {
       setUser(currentUser);
     } else {
-      // Seed data if first time
+      // Seed initial data if totally empty (e.g. fresh browser)
       db.seed();
     }
   }, []);
 
-  const login = (email: string) => {
+  const login = (email: string, password?: string) => {
     try {
-        const u = db.login(email);
+        const u = db.login(email, password);
         setUser(u);
     } catch (e) {
         alert(e instanceof Error ? e.message : "Login failed");
     }
   };
 
-  const signup = (name: string, email: string) => {
+  const signup = (name: string, email: string, password?: string) => {
     try {
-        const u = db.signup(name, email);
+        const u = db.signup(name, email, password);
+        // Ensure user specific data structures exist (like default list)
+        db.seed(); 
         setUser(u);
     } catch (e) {
         alert(e instanceof Error ? e.message : "Signup failed");

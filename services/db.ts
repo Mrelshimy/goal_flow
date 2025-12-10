@@ -1,11 +1,17 @@
 
 import { Goal, Achievement, Habit, User, Milestone, Task, TaskList } from '../types';
 
+// Extended User type for internal DB storage including password
+interface DBUser extends User {
+  password?: string; // Optional for backward compatibility with existing mock data
+}
+
 // Initial Mock Data
-const MOCK_USER: User = {
+const MOCK_USER: DBUser = {
   id: 'user-1',
   name: 'Alex Johnson',
   email: 'alex@example.com',
+  password: 'password123'
 };
 
 const STORAGE_KEYS = {
@@ -30,49 +36,72 @@ class DBService {
   }
 
   // --- Auth ---
-  private getAllUsers(): User[] {
-    return this.getRaw<User>(STORAGE_KEYS.USERS);
+  private getAllUsers(): DBUser[] {
+    return this.getRaw<DBUser>(STORAGE_KEYS.USERS);
   }
 
-  login(email: string): User {
+  // Simple mock hash (Base64) to avoid storing plain text
+  private hashPassword(password: string): string {
+    return btoa(password);
+  }
+
+  login(email: string, password?: string): User {
     const users = this.getAllUsers();
     
-    // Check registered users first
+    // Check registered users
     const registeredUser = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+
     if (registeredUser) {
-      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(registeredUser));
-      return registeredUser;
+        // If the user exists, we MUST check the password
+        if (!password) throw new Error("Password is required.");
+        
+        // Check if password matches (hashed)
+        // Note: For existing demo data without password, we allow login or force update
+        if (registeredUser.password && registeredUser.password !== this.hashPassword(password)) {
+            throw new Error("Invalid email or password.");
+        }
+
+        // Create a session object without the password
+        const { password: _, ...userSession } = registeredUser;
+        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(userSession));
+        return userSession;
     }
 
-    // Fallback for demo purposes
-    if (users.length === 0) {
+    // Fallback for the very first run if no users exist at all
+    if (users.length === 0 && email === 'alex@example.com') {
        const demoUser = { ...MOCK_USER, email };
        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(demoUser));
+       // Also save to registry so password check works next time
+       this.saveRaw(STORAGE_KEYS.USERS, [{...demoUser, password: this.hashPassword('password123')}]);
        return demoUser;
     }
 
     throw new Error("User not found. Please sign up.");
   }
 
-  signup(name: string, email: string): User {
+  signup(name: string, email: string, password?: string): User {
     const users = this.getAllUsers();
     
     if (users.find(u => u.email.toLowerCase() === email.toLowerCase())) {
         throw new Error("User with this email already exists.");
     }
 
-    const newUser: User = {
+    if (!password) throw new Error("Password is required for signup.");
+
+    const newUser: DBUser = {
         id: crypto.randomUUID(),
         name,
-        email
+        email,
+        password: this.hashPassword(password)
     };
 
     users.push(newUser);
     this.saveRaw(STORAGE_KEYS.USERS, users);
     
-    // Auto login
-    localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(newUser));
-    return newUser;
+    // Auto login (create session without password)
+    const { password: _, ...userSession } = newUser;
+    localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(userSession));
+    return userSession;
   }
 
   logout() {
@@ -185,7 +214,6 @@ class DBService {
     this.saveRaw(STORAGE_KEYS.TASKS, remainingTasks);
 
     // Trigger goal updates for deleted tasks that were linked
-    // We can iterate tasksToDelete to find linked goals and update them
     const userGoals = this.getGoals(); // Only update current user's goals
     const uniqueGoalIds = new Set(tasksToDelete.map(t => t.linkedGoalId).filter(Boolean));
     uniqueGoalIds.forEach(gid => {
@@ -214,7 +242,6 @@ class DBService {
     this.saveRaw(STORAGE_KEYS.TASKS, allTasks);
 
     // Update Goal Progress if linked
-    // Only update if the goal belongs to the current user (it should)
     const userGoals = this.getGoals();
     
     if (task.linkedGoalId) {
@@ -293,7 +320,6 @@ class DBService {
     if (habitIndex === -1) throw new Error("Habit not found");
 
     const habit = allHabits[habitIndex];
-    // Check ownership
     const user = this.getCurrentUser();
     if (habit.userId !== user?.id) throw new Error("Unauthorized");
 
@@ -341,21 +367,34 @@ class DBService {
 
   // --- Seed Data ---
   seed() {
-    // Check if GLOBAL data exists, not just user specific.
-    // However, for simplicity, we check keys.
-    if (!localStorage.getItem(STORAGE_KEYS.TASK_LISTS)) {
-        const defaultList: TaskList = {
-            id: 'list-default',
-            userId: 'user-1',
-            title: 'My Tasks',
-            isDefault: true
-        };
-        this.saveRaw(STORAGE_KEYS.TASK_LISTS, [defaultList]);
+    const user = this.getCurrentUser();
+    
+    // Ensure default list exists for CURRENT user
+    if (user) {
+        const allLists = this.getRaw<TaskList>(STORAGE_KEYS.TASK_LISTS);
+        const userList = allLists.find(l => l.userId === user.id);
+        if (!userList) {
+             const defaultList: TaskList = {
+                id: crypto.randomUUID(),
+                userId: user.id,
+                title: 'My Tasks',
+                isDefault: true
+            };
+            allLists.push(defaultList);
+            this.saveRaw(STORAGE_KEYS.TASK_LISTS, allLists);
+        }
     }
+    
+    // Only seed global demo data if totally empty
+    if (!localStorage.getItem(STORAGE_KEYS.USERS)) {
+       // Seed the mock user with password
+       this.saveRaw(STORAGE_KEYS.USERS, [{
+           ...MOCK_USER,
+           password: this.hashPassword(MOCK_USER.password || 'password123')
+       }]);
 
-    if (!localStorage.getItem(STORAGE_KEYS.GOALS)) {
-      const demoGoals: Goal[] = [
-        {
+       // Seed Goal
+       const demoGoals: Goal[] = [{
           id: 'g1',
           userId: 'user-1',
           title: 'Become Senior Engineer',
@@ -369,14 +408,11 @@ class DBService {
             { id: 'm2', goalId: 'g1', description: 'Mentor a junior dev', status: 'pending', dueDate: '2024-06-01' },
             { id: 'm3', goalId: 'g1', description: 'Complete system architecture course', status: 'pending', dueDate: '2024-09-01' },
           ]
-        }
-      ];
-      this.saveRaw(STORAGE_KEYS.GOALS, demoGoals);
-    }
-    
-    if (!localStorage.getItem(STORAGE_KEYS.ACHIEVEMENTS)) {
-      const demoAch: Achievement[] = [
-        {
+       }];
+       this.saveRaw(STORAGE_KEYS.GOALS, demoGoals);
+
+       // Seed Achievement
+       const demoAch: Achievement[] = [{
           id: 'a1',
           userId: 'user-1',
           title: 'Optimized Login Flow',
@@ -386,17 +422,19 @@ class DBService {
           project: 'Core Platform',
           date: '2024-02-15',
           createdAt: new Date().toISOString()
-        }
-      ];
-      this.saveRaw(STORAGE_KEYS.ACHIEVEMENTS, demoAch);
-    }
+       }];
+       this.saveRaw(STORAGE_KEYS.ACHIEVEMENTS, demoAch);
+       
+       // Seed List and Task
+       const listId = 'list-default';
+       const defaultList: TaskList = { id: listId, userId: 'user-1', title: 'My Tasks', isDefault: true };
+       this.saveRaw(STORAGE_KEYS.TASK_LISTS, [defaultList]);
 
-    if (!localStorage.getItem(STORAGE_KEYS.TASKS)) {
-        const demoTasks: Task[] = [
-            { id: 't1', listId: 'list-default', userId: 'user-1', title: 'Review PR #405', details: 'Check for security vulnerabilities', status: 'pending', createdAt: new Date().toISOString() },
-            { id: 't2', listId: 'list-default', userId: 'user-1', title: 'Prepare 1:1 agenda', details: '', status: 'completed', completedAt: new Date().toISOString(), createdAt: new Date().toISOString() }
-        ];
-        this.saveRaw(STORAGE_KEYS.TASKS, demoTasks);
+       const demoTasks: Task[] = [
+            { id: 't1', listId: listId, userId: 'user-1', title: 'Review PR #405', details: 'Check for security vulnerabilities', status: 'pending', createdAt: new Date().toISOString() },
+            { id: 't2', listId: listId, userId: 'user-1', title: 'Prepare 1:1 agenda', details: '', status: 'completed', completedAt: new Date().toISOString(), createdAt: new Date().toISOString() }
+       ];
+       this.saveRaw(STORAGE_KEYS.TASKS, demoTasks);
     }
   }
 }
