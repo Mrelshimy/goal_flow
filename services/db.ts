@@ -1,5 +1,6 @@
+
 import { supabase } from './supabase';
-import { Goal, Achievement, Habit, User, Milestone, Task, TaskList } from '../types';
+import { Goal, Achievement, Habit, User, Milestone, Task, TaskList, KPI } from '../types';
 
 // Map Supabase Profile to App User
 const mapProfileToUser = (profile: any): User => ({
@@ -255,6 +256,47 @@ class DBService {
         const goal = await this.getGoalById(task.linked_goal_id);
         if (goal) await this.saveGoal(goal);
     }
+  }
+
+  // --- KPIs ---
+
+  async getKPIs(): Promise<KPI[]> {
+    const { data, error } = await supabase.from('kpis').select('*');
+    if (error) return [];
+    
+    return data.map((k: any) => ({
+        ...k,
+        userId: k.user_id,
+        targetValue: k.target_value,
+        currentValue: k.current_value,
+        linkedGoalIds: k.linked_goal_ids || [],
+        createdAt: k.created_at
+    }));
+  }
+
+  async saveKPI(kpi: KPI): Promise<KPI> {
+    const { data: { user } } = await supabase.auth.getUser();
+    const dbKPI = {
+        id: kpi.id,
+        user_id: user?.id,
+        name: kpi.name,
+        description: kpi.description,
+        type: kpi.type,
+        target_value: kpi.targetValue,
+        current_value: kpi.currentValue,
+        unit: kpi.unit,
+        linked_goal_ids: kpi.linkedGoalIds,
+        notes: kpi.notes,
+        created_at: kpi.createdAt
+    };
+
+    const { error } = await supabase.from('kpis').upsert(dbKPI);
+    if (error) throw error;
+    return kpi;
+  }
+
+  async deleteKPI(id: string) {
+    await supabase.from('kpis').delete().eq('id', id);
   }
 
   // --- Achievements ---

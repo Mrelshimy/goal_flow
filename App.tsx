@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, createContext, useContext } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { User } from './types';
@@ -10,6 +11,7 @@ import Achievements from './pages/Achievements';
 import Reports from './pages/Reports';
 import Personal from './pages/Personal';
 import Tasks from './pages/Tasks';
+import KPIs from './pages/KPIs';
 import Profile from './pages/Profile';
 import Layout from './components/Layout';
 
@@ -83,6 +85,7 @@ const App: React.FC = () => {
           <Route path="/" element={user ? <Layout /> : <Navigate to="/login" />}>
             <Route index element={<Dashboard />} />
             <Route path="goals" element={<Goals />} />
+            <Route path="kpis" element={<KPIs />} />
             <Route path="tasks" element={<Tasks />} />
             <Route path="achievements" element={<Achievements />} />
             <Route path="reports" element={<Reports />} />

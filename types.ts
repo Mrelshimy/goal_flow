@@ -85,6 +85,20 @@ export interface Habit {
   history: string[]; // List of YYYY-MM-DD dates completed
 }
 
+export interface KPI {
+  id: string;
+  userId: string;
+  name: string;
+  description?: string;
+  type: 'numeric' | 'percentage' | 'currency';
+  targetValue: number;
+  currentValue: number;
+  unit?: string;
+  linkedGoalIds: string[];
+  notes?: string;
+  createdAt: string;
+}
+
 export interface ReportConfig {
   type: 'Weekly' | 'Monthly' | 'Quarterly';
   tone: 'Manager-ready' | 'Casual' | 'Concise';

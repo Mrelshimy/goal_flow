@@ -10,7 +10,8 @@ import {
   LogOut, 
   Menu,
   X,
-  ListTodo
+  ListTodo,
+  TrendingUp
 } from 'lucide-react';
 import { useAuth } from '../App';
 
@@ -22,6 +23,7 @@ const Layout: React.FC = () => {
   const navItems = [
     { name: 'Dashboard', path: '/', icon: LayoutDashboard },
     { name: 'Goals', path: '/goals', icon: Target },
+    { name: 'KPIs', path: '/kpis', icon: TrendingUp },
     { name: 'Tasks', path: '/tasks', icon: ListTodo },
     { name: 'Achievements', path: '/achievements', icon: Award },
     { name: 'Reports', path: '/reports', icon: FileText },
