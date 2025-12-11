@@ -308,12 +308,12 @@ class DBService {
 
   async getKPIs(): Promise<KPI[]> {
     try {
-        // Try complex join query first
+        // Explicitly name the join using the foreign key column 'user_id'
         const { data, error } = await supabase
             .from('kpis')
             .select(`
                 *,
-                profiles:user_id ( full_name )
+                profiles:user_id ( full_name, department )
             `);
         
         if (error) throw error;
@@ -331,7 +331,7 @@ class DBService {
             ownerName: k.profiles?.full_name
         }));
     } catch (e) {
-        // Fallback: Simple fetch (if join fails due to RLS or missing FK)
+        // Fallback: Simple fetch if complex join fails
         const { data, error } = await supabase.from('kpis').select('*');
         if (error) {
             console.error("Critical KPI fetch error", error);
@@ -348,7 +348,7 @@ class DBService {
             level: k.level || 'individual',
             parentKpiId: k.parent_kpi_id,
             createdAt: k.created_at,
-            ownerName: 'User' // Fallback name
+            ownerName: 'User'
         }));
     }
   }
@@ -358,9 +358,10 @@ class DBService {
     if (!user || !user.department) return [];
 
     try {
+        // Use explicit join syntax profiles:user_id
         const { data, error } = await supabase
             .from('kpis')
-            .select(`*, profiles!inner(*)`)
+            .select(`*, profiles:user_id!inner(full_name, department)`)
             .eq('profiles.department', user.department)
             .neq('user_id', user.id); 
             
@@ -380,7 +381,6 @@ class DBService {
         }));
     } catch (e) {
         console.error("Error fetching dept employee KPIs", e);
-        // Fallback: If inner join fails, just try fetching filtered by logic in code if RLS permits
         return [];
     }
   }
@@ -390,20 +390,19 @@ class DBService {
     if (!user) return [];
 
     try {
-        // Simplify query: Rely on RLS to filter visibility to own department
-        // We only want KPIs that are marked 'department' level
-        // We optionally join profiles to get the owner name, but don't force !inner join constraint
+        // Fetch KPIs that are marked 'department'
+        // Join with profiles to get the owner's department
+        // We do client-side filtering as an extra safety measure against RLS edge cases
         const { data, error } = await supabase
             .from('kpis')
-            .select(`*, profiles(full_name, department)`)
+            .select(`*, profiles:user_id(full_name, department)`)
             .eq('level', 'department');
         
         if (error) throw error;
         
-        // Filter in memory just in case RLS is open but we want strict department match
-        // Note: RLS should handle this, but if user.department is set, we can double check
+        // Robust Filtering: Check if the KPI owner's department matches current user's department
         const filtered = user.department 
-            ? data.filter((k: any) => !k.profiles || k.profiles.department === user.department)
+            ? data.filter((k: any) => k.profiles && k.profiles.department === user.department)
             : data;
         
         return filtered.map((k: any) => ({
