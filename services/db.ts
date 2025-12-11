@@ -309,80 +309,113 @@ class DBService {
   // --- KPIs ---
 
   async getKPIs(): Promise<KPI[]> {
-    const { data, error } = await supabase
-        .from('kpis')
-        .select(`
-            *,
-            profiles:user_id ( full_name )
-        `);
-    
-    if (error) return [];
-    
-    return data.map((k: any) => ({
-        ...k,
-        userId: k.user_id,
-        targetValue: k.target_value,
-        currentValue: k.current_value,
-        weight: k.weight || 1, 
-        linkedGoalIds: k.linked_goal_ids || [],
-        level: k.level || 'individual',
-        parentKpiId: k.parent_kpi_id,
-        createdAt: k.created_at,
-        ownerName: k.profiles?.full_name
-    }));
+    try {
+        // Try complex join query first
+        const { data, error } = await supabase
+            .from('kpis')
+            .select(`
+                *,
+                profiles:user_id ( full_name )
+            `);
+        
+        if (error) throw error;
+        
+        return data.map((k: any) => ({
+            ...k,
+            userId: k.user_id,
+            targetValue: k.target_value,
+            currentValue: k.current_value,
+            weight: k.weight || 1, 
+            linkedGoalIds: k.linked_goal_ids || [],
+            level: k.level || 'individual',
+            parentKpiId: k.parent_kpi_id,
+            createdAt: k.created_at,
+            ownerName: k.profiles?.full_name
+        }));
+    } catch (e) {
+        // Fallback: Simple fetch (if join fails due to RLS or missing FK)
+        console.warn("KPI join query failed, falling back to simple select", e);
+        const { data, error } = await supabase.from('kpis').select('*');
+        if (error) {
+            console.error("Critical KPI fetch error", error);
+            return [];
+        }
+
+        return data.map((k: any) => ({
+            ...k,
+            userId: k.user_id,
+            targetValue: k.target_value,
+            currentValue: k.current_value,
+            weight: k.weight || 1, 
+            linkedGoalIds: k.linked_goal_ids || [],
+            level: k.level || 'individual',
+            parentKpiId: k.parent_kpi_id,
+            createdAt: k.created_at,
+            ownerName: 'User' // Fallback name
+        }));
+    }
   }
 
   async getDepartmentEmployeeKPIs(): Promise<KPI[]> {
     const user = await this.getCurrentUser();
     if (!user || !user.department) return [];
 
-    const { data, error } = await supabase
-        .from('kpis')
-        .select(`*, profiles!inner(*)`)
-        .eq('profiles.department', user.department)
-        .neq('user_id', user.id); 
+    try {
+        const { data, error } = await supabase
+            .from('kpis')
+            .select(`*, profiles!inner(*)`)
+            .eq('profiles.department', user.department)
+            .neq('user_id', user.id); 
+            
+        if (error) throw error;
         
-    if (error) { console.error(error); return []; }
-    
-    return data.map((k: any) => ({
-        ...k,
-        userId: k.user_id,
-        targetValue: k.target_value,
-        currentValue: k.current_value,
-        weight: k.weight || 1,
-        linkedGoalIds: k.linked_goal_ids || [],
-        level: k.level || 'individual',
-        parentKpiId: k.parent_kpi_id,
-        createdAt: k.created_at,
-        ownerName: k.profiles?.full_name
-    }));
+        return data.map((k: any) => ({
+            ...k,
+            userId: k.user_id,
+            targetValue: k.target_value,
+            currentValue: k.current_value,
+            weight: k.weight || 1,
+            linkedGoalIds: k.linked_goal_ids || [],
+            level: k.level || 'individual',
+            parentKpiId: k.parent_kpi_id,
+            createdAt: k.created_at,
+            ownerName: k.profiles?.full_name
+        }));
+    } catch (e) {
+        console.error("Error fetching dept employee KPIs", e);
+        return [];
+    }
   }
 
   async getDepartmentKPIs(): Promise<KPI[]> {
     const user = await this.getCurrentUser();
     if (!user || !user.department) return [];
 
-    // Get KPIs that are level 'department' belonging to users in same dept
-    const { data, error } = await supabase
-        .from('kpis')
-        .select(`*, profiles!inner(department, full_name)`)
-        .eq('level', 'department')
-        .eq('profiles.department', user.department);
-    
-    if (error) { console.error("Error fetching dept KPIs", error); return []; }
-    
-    return data.map((k: any) => ({
-        ...k,
-        userId: k.user_id,
-        targetValue: k.target_value,
-        currentValue: k.current_value,
-        weight: k.weight || 1,
-        linkedGoalIds: k.linked_goal_ids || [],
-        level: k.level || 'individual',
-        parentKpiId: k.parent_kpi_id,
-        createdAt: k.created_at,
-        ownerName: k.profiles?.full_name
-    }));
+    try {
+        const { data, error } = await supabase
+            .from('kpis')
+            .select(`*, profiles!inner(department, full_name)`)
+            .eq('level', 'department')
+            .eq('profiles.department', user.department);
+        
+        if (error) throw error;
+        
+        return data.map((k: any) => ({
+            ...k,
+            userId: k.user_id,
+            targetValue: k.target_value,
+            currentValue: k.current_value,
+            weight: k.weight || 1,
+            linkedGoalIds: k.linked_goal_ids || [],
+            level: k.level || 'individual',
+            parentKpiId: k.parent_kpi_id,
+            createdAt: k.created_at,
+            ownerName: k.profiles?.full_name
+        }));
+    } catch (e) {
+        console.error("Error fetching dept KPIs", e);
+        return [];
+    }
   }
 
   async saveKPI(kpi: KPI): Promise<KPI> {
@@ -407,7 +440,10 @@ class DBService {
     };
 
     const { error } = await supabase.from('kpis').upsert(dbKPI);
-    if (error) throw new Error(error.message);
+    if (error) {
+        console.error("Save KPI Error:", error);
+        throw new Error(error.message);
+    }
     return kpi;
   }
 
