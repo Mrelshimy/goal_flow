@@ -246,8 +246,17 @@ const Goals: React.FC = () => {
         };
 
         await db.saveTask(newTask);
+
+        // Remove the milestone from the goal to prevent duplication (it's now a linked task)
+        const goalToUpdate = goals.find(g => g.id === convertModalData.goalId);
+        if (goalToUpdate) {
+            const updatedMilestones = goalToUpdate.milestones.filter(m => m.id !== convertModalData.milestone.id);
+            const updatedGoal = { ...goalToUpdate, milestones: updatedMilestones };
+            await db.saveGoal(updatedGoal);
+        }
+
         setConvertModalData(null);
-        await refreshGoals(); // Refresh to show the new linked task
+        await refreshGoals(); // Refresh to show the new linked task and removed milestone
       } catch (e) {
         console.error("Failed to convert milestone to task", e);
       } finally {
@@ -613,7 +622,7 @@ const GoalCard: React.FC<{
                                 </div>
                                 <button 
                                     onClick={(e) => { e.stopPropagation(); onConvertMilestone(m); }}
-                                    className="text-indigo-400 hover:text-indigo-600 bg-indigo-50 hover:bg-indigo-100 p-1.5 rounded transition-colors"
+                                    className="text-indigo-500 hover:text-indigo-600 bg-indigo-50 hover:bg-indigo-100 p-1.5 rounded transition-colors"
                                     title="Add as Task"
                                 >
                                     <ListPlus size={16} />
