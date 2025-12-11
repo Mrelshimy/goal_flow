@@ -3,13 +3,14 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../App';
 import { db } from '../services/db';
 import { generateSmartGoal, generateMilestones } from '../services/geminiService';
-import { Goal, GoalCategory, Milestone, Task } from '../types';
-import { Plus, Trash2, Wand2, CheckCircle, Circle, Save, X, ChevronDown, ChevronUp, Target, Pencil, Tag, Link as LinkIcon, Loader2 } from 'lucide-react';
+import { Goal, GoalCategory, Milestone, Task, TaskList } from '../types';
+import { Plus, Trash2, Wand2, CheckCircle, Circle, Save, X, ChevronDown, ChevronUp, Target, Pencil, Tag, Link as LinkIcon, Loader2, ListPlus, ArrowRight } from 'lucide-react';
 
 const Goals: React.FC = () => {
   const { user } = useAuth();
   const [goals, setGoals] = useState<Goal[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [taskLists, setTaskLists] = useState<TaskList[]>([]);
   const [loading, setLoading] = useState(true);
   
   // Create/Edit State
@@ -29,15 +30,25 @@ const Goals: React.FC = () => {
   const [milestoneDateInput, setMilestoneDateInput] = useState('');
   const [editingMilestoneIndex, setEditingMilestoneIndex] = useState<number | null>(null);
 
+  // Convert Milestone to Task State
+  const [convertModalData, setConvertModalData] = useState<{milestone: Milestone, goalId: string} | null>(null);
+  const [selectedListId, setSelectedListId] = useState<string>('');
+
   useEffect(() => {
     refreshGoals();
   }, []);
 
   const refreshGoals = async () => {
       setLoading(true);
-      const [g, t] = await Promise.all([db.getGoals(), db.getTasks()]);
+      const [g, t, l] = await Promise.all([
+          db.getGoals(), 
+          db.getTasks(),
+          db.getTaskLists()
+      ]);
       setGoals(g);
       setTasks(t);
+      setTaskLists(l);
+      if (l.length > 0) setSelectedListId(l[0].id);
       setLoading(false);
   };
 
@@ -112,7 +123,6 @@ const Goals: React.FC = () => {
     })));
     setEditingId(goal.id);
     setIsCreating(true);
-    // Reset manual inputs just in case
     setMilestoneInput('');
     setMilestoneDateInput('');
     setEditingMilestoneIndex(null);
@@ -120,7 +130,7 @@ const Goals: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoadingAI(true); // Reuse loading spinner
+    setIsLoadingAI(true); 
     
     const goalId = editingId || crypto.randomUUID();
     const existingGoal = editingId ? goals.find(g => g.id === editingId) : null;
@@ -135,7 +145,7 @@ const Goals: React.FC = () => {
       progress: existingGoal ? existingGoal.progress : 0,
       createdAt: existingGoal?.createdAt || new Date().toISOString(),
       milestones: newMilestones.map(m => ({
-        id: crypto.randomUUID(), // New milestones get new UUIDs each save, okay for MVP
+        id: crypto.randomUUID(), 
         goalId: goalId,
         description: m.description,
         status: m.status || 'pending',
@@ -165,7 +175,6 @@ const Goals: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    // Note: removed confirm dialog as per previous requests
     await db.deleteGoal(id);
     refreshGoals();
   };
@@ -199,10 +208,34 @@ const Goals: React.FC = () => {
       refreshGoals();
   };
 
+  // --- Milestone to Task Logic ---
+  const openConvertModal = (milestone: Milestone, goalId: string) => {
+      setConvertModalData({ milestone, goalId });
+  };
+
+  const handleConvertSubmit = async () => {
+      if (!convertModalData || !selectedListId) return;
+
+      const newTask: Task = {
+          id: crypto.randomUUID(),
+          userId: user?.id || '',
+          listId: selectedListId,
+          linkedGoalId: convertModalData.goalId,
+          title: convertModalData.milestone.description,
+          dueDate: convertModalData.milestone.dueDate,
+          status: 'pending',
+          createdAt: new Date().toISOString()
+      };
+
+      await db.saveTask(newTask);
+      setConvertModalData(null);
+      refreshGoals(); // Refresh to show the new linked task
+  };
+
   if (loading && goals.length === 0) return <div className="p-8 flex justify-center"><Loader2 className="animate-spin" /></div>;
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-6 pb-20 relative">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <h1 className="text-2xl font-bold text-gray-800">Goals</h1>
         
@@ -378,6 +411,7 @@ const Goals: React.FC = () => {
                 onToggleMilestone={toggleMilestone}
                 onToggleLinkedTask={toggleLinkedTask}
                 onToggleCompletion={toggleGoalCompletion}
+                onConvertMilestone={(m) => openConvertModal(m, goal.id)}
             />
         ))}
         {goals.length === 0 && !isCreating && (
@@ -388,6 +422,46 @@ const Goals: React.FC = () => {
             </div>
         )}
       </div>
+
+      {/* Convert Modal */}
+      {convertModalData && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/50 backdrop-blur-sm p-4 animate-fade-in">
+              <div className="bg-white w-full max-w-sm rounded-xl shadow-xl p-6">
+                  <div className="flex justify-between items-start mb-4">
+                      <h3 className="text-lg font-bold text-gray-800">Add as Task</h3>
+                      <button onClick={() => setConvertModalData(null)}><X size={20} className="text-gray-400" /></button>
+                  </div>
+                  
+                  <div className="mb-4">
+                      <p className="text-sm text-gray-600 mb-2">Create a task from milestone:</p>
+                      <div className="p-3 bg-blue-50 text-blue-800 rounded-lg text-sm font-medium">
+                          "{convertModalData.milestone.description}"
+                      </div>
+                  </div>
+
+                  <div className="mb-6">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Select Task List</label>
+                      <select 
+                          value={selectedListId}
+                          onChange={(e) => setSelectedListId(e.target.value)}
+                          className="w-full border rounded-md p-2 bg-white"
+                      >
+                          {taskLists.map(list => (
+                              <option key={list.id} value={list.id}>{list.title}</option>
+                          ))}
+                      </select>
+                  </div>
+
+                  <div className="flex justify-end gap-2">
+                      <button onClick={() => setConvertModalData(null)} className="px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+                      <button onClick={handleConvertSubmit} className="px-4 py-2 bg-primary text-white text-sm rounded-lg hover:bg-blue-600 flex items-center gap-2">
+                          <ListPlus size={16} /> Add Task
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
     </div>
   );
 };
@@ -401,7 +475,8 @@ const GoalCard: React.FC<{
     onToggleMilestone: (g: Goal, mid: string) => void;
     onToggleLinkedTask: (t: Task) => void;
     onToggleCompletion: (g: Goal, e: React.MouseEvent) => void;
-}> = ({ goal, linkedTasks, onDelete, onEdit, onToggleMilestone, onToggleLinkedTask, onToggleCompletion }) => {
+    onConvertMilestone: (m: Milestone) => void;
+}> = ({ goal, linkedTasks, onDelete, onEdit, onToggleMilestone, onToggleLinkedTask, onToggleCompletion, onConvertMilestone }) => {
     const [expanded, setExpanded] = useState(false);
     
     const completedMilestones = goal.milestones.filter(m => m.status === 'completed').length;
@@ -491,16 +566,27 @@ const GoalCard: React.FC<{
                     <div className="px-6 pb-4 space-y-2 animate-fade-in">
                         {goal.milestones.map(m => (
                             <div key={m.id} 
-                                onClick={() => onToggleMilestone(goal, m.id)}
-                                className="flex items-start gap-3 p-2 hover:bg-white rounded cursor-pointer group"
+                                className="flex items-center justify-between p-2 hover:bg-white rounded group"
                             >
-                                <div className={`mt-0.5 ${m.status === 'completed' ? 'text-green-500' : 'text-gray-300 group-hover:text-gray-400'}`}>
-                                    {m.status === 'completed' ? <CheckCircle size={18} /> : <Circle size={18} />}
+                                <div 
+                                    className="flex items-start gap-3 cursor-pointer flex-1"
+                                    onClick={() => onToggleMilestone(goal, m.id)}
+                                >
+                                    <div className={`mt-0.5 ${m.status === 'completed' ? 'text-green-500' : 'text-gray-300 group-hover:text-gray-400'}`}>
+                                        {m.status === 'completed' ? <CheckCircle size={18} /> : <Circle size={18} />}
+                                    </div>
+                                    <div className={m.status === 'completed' ? 'opacity-50 line-through' : ''}>
+                                        <p className="text-sm text-gray-800">{m.description}</p>
+                                        <p className="text-xs text-gray-500">Due: {m.dueDate}</p>
+                                    </div>
                                 </div>
-                                <div className={m.status === 'completed' ? 'opacity-50 line-through' : ''}>
-                                    <p className="text-sm text-gray-800">{m.description}</p>
-                                    <p className="text-xs text-gray-500">Due: {m.dueDate}</p>
-                                </div>
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); onConvertMilestone(m); }}
+                                    className="text-gray-300 hover:text-primary hover:bg-blue-50 p-1.5 rounded transition-colors opacity-0 group-hover:opacity-100"
+                                    title="Add as Task"
+                                >
+                                    <ListPlus size={16} />
+                                </button>
                             </div>
                         ))}
 
