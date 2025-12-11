@@ -311,45 +311,57 @@ class DBService {
     if (!user) return [];
 
     try {
-        // 1. Fetch MY Own KPIs
-        // We explicitly select KPIs where user_id matches the logged-in user
-        const { data: myKpis, error: myError } = await supabase
+        // 1. Fetch My Own KPIs
+        // Fetch strictly by user_id. We won't use a join here to avoid errors if join syntax is wrong.
+        // We'll trust the user knows it's their own.
+        const { data: myKpisRaw, error: myError } = await supabase
             .from('kpis')
-            .select(`*, profiles:user_id ( full_name, department )`)
+            .select('*')
             .eq('user_id', user.id);
 
         if (myError) {
              console.error("Error fetching my KPIs", myError);
              throw myError;
         }
+        
+        const myKpis = myKpisRaw.map((k: any) => ({
+            ...k,
+            ownerName: user.name || 'Me'
+        }));
 
         // 2. Fetch Department KPIs (if user belongs to a department)
-        // We fetch ALL 'department' level KPIs first, then filter in memory to ensure
-        // we strictly match the user's department name. This is safer than relying on complex joins/RLS alone.
         let deptKpis: any[] = [];
+        
         if (user.department) {
-             const { data: dKpis, error: dError } = await supabase
+             // We attempt to fetch using a join to filter by department
+             // Use generic 'profiles' which Supabase should match to the user_id FK
+             const { data: dKpisRaw, error: dError } = await supabase
                 .from('kpis')
-                .select(`*, profiles:user_id ( full_name, department )`)
+                .select(`*, profiles(full_name, department)`)
                 .eq('level', 'department');
              
-             if (!dError && dKpis) {
-                 deptKpis = dKpis.filter((k: any) => 
-                     // Match department name strictly
-                     k.profiles?.department === user.department && 
-                     // Exclude if I am the owner (already in myKpis, though usually dept KPIs are owned by Head)
-                     k.user_id !== user.id
-                 );
+             if (!dError && dKpisRaw) {
+                 deptKpis = dKpisRaw.filter((k: any) => {
+                     // 1. Must match user's department
+                     const matchesDept = k.profiles?.department === user.department;
+                     // 2. Exclude if it's actually my own KPI (already in myKpis)
+                     const isNotMine = k.user_id !== user.id;
+                     return matchesDept && isNotMine;
+                 }).map((k: any) => ({
+                     ...k,
+                     ownerName: k.profiles?.full_name || 'Department'
+                 }));
+             } else if (dError) {
+                 console.warn("Could not fetch department KPIs with join:", dError.message);
+                 // Fallback: If join fails, we cannot securely know department ownership without RLS or join.
+                 // We skip department KPIs to avoid showing wrong data.
              }
         }
 
         // Combine unique list
-        const allKpis = [...(myKpis || []), ...deptKpis];
+        const allKpis = [...myKpis, ...deptKpis];
         
-        // Remove duplicates if any
-        const uniqueKpis = Array.from(new Map(allKpis.map(item => [item.id, item])).values());
-
-        return uniqueKpis.map((k: any) => ({
+        return allKpis.map((k: any) => ({
             ...k,
             userId: k.user_id,
             targetValue: k.target_value,
@@ -359,10 +371,11 @@ class DBService {
             level: k.level || 'individual',
             parentKpiId: k.parent_kpi_id,
             createdAt: k.created_at,
-            ownerName: k.profiles?.full_name
+            ownerName: k.ownerName
         }));
     } catch (e) {
         console.error("Critical KPI fetch error", e);
+        // Fallback: return empty array rather than crashing
         return [];
     }
   }
@@ -372,16 +385,18 @@ class DBService {
     if (!user || !user.department) return [];
 
     try {
-        // Use explicit join syntax profiles:user_id
+        // Attempt fetch with standard join
         const { data, error } = await supabase
             .from('kpis')
-            .select(`*, profiles:user_id!inner(full_name, department)`)
-            .eq('profiles.department', user.department)
+            .select(`*, profiles(full_name, department)`)
             .neq('user_id', user.id); 
             
         if (error) throw error;
         
-        return data.map((k: any) => ({
+        // Filter in memory for safety
+        const filtered = data.filter((k: any) => k.profiles?.department === user.department);
+        
+        return filtered.map((k: any) => ({
             ...k,
             userId: k.user_id,
             targetValue: k.target_value,
@@ -404,17 +419,15 @@ class DBService {
     if (!user || !user.department) return [];
 
     try {
-        // Fetch KPIs that are marked 'department'
-        // Join with profiles to get the owner's department
+        // Fetch all department-level KPIs, then filter
         const { data, error } = await supabase
             .from('kpis')
-            .select(`*, profiles:user_id(full_name, department)`)
+            .select(`*, profiles(full_name, department)`)
             .eq('level', 'department');
         
         if (error) throw error;
         
-        // Robust Filtering: Check if the KPI owner's department matches current user's department
-        // This ensures employees only see Parent KPIs from their OWN department
+        // Robust Filtering
         const filtered = data.filter((k: any) => 
             k.profiles && k.profiles.department === user.department
         );
