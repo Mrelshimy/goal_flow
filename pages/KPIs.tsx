@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../App';
 import { db } from '../services/db';
 import { KPI, Goal } from '../types';
-import { Plus, X, Save, TrendingUp, Target, Activity, Filter, Trash2, ArrowRight, Loader2 } from 'lucide-react';
+import { Plus, X, Save, TrendingUp, Target, Activity, Filter, Trash2, ArrowRight, Loader2, AlertTriangle } from 'lucide-react';
 
 const KPIs: React.FC = () => {
   const { user } = useAuth();
@@ -116,7 +116,11 @@ const KPIs: React.FC = () => {
         setIsCreateOpen(false);
     } catch (error: any) {
         console.error("Failed to save KPI", error);
-        alert(`Failed to save KPI: ${error.message}`);
+        if (error.message?.includes('Could not find the table') || error.message?.includes('relation "public.kpis" does not exist')) {
+            alert("Configuration Error: The 'kpis' table is missing in your database.\n\nPlease copy the code from 'supabase_schema.sql' and run it in your Supabase SQL Editor.");
+        } else {
+            alert(`Failed to save KPI: ${error.message}`);
+        }
     } finally {
         setIsSaving(false);
     }
