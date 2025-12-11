@@ -17,6 +17,7 @@ const KPIs: React.FC = () => {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isUpdateOpen, setIsUpdateOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isFetchingLinkedData, setIsFetchingLinkedData] = useState(false);
   
   // Create/Edit Form State
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -62,14 +63,21 @@ const KPIs: React.FC = () => {
   };
 
   const fetchLinkingData = async () => {
-      if (user?.role === 'department_head') {
-          // Dept Heads can link children
-          const children = await db.getDepartmentEmployeeKPIs();
-          setAvailableChildKPIs(children);
-      } else {
-          // Employees can link to a parent (Dept KPI)
-          const parents = await db.getDepartmentKPIs();
-          setDepartmentKPIs(parents);
+      setIsFetchingLinkedData(true);
+      try {
+        if (user?.role === 'department_head') {
+            // Dept Heads can link children
+            const children = await db.getDepartmentEmployeeKPIs();
+            setAvailableChildKPIs(children);
+        } else {
+            // Employees can link to a parent (Dept KPI)
+            const parents = await db.getDepartmentKPIs();
+            setDepartmentKPIs(parents);
+        }
+      } catch (e) {
+          console.error("Error fetching linking data", e);
+      } finally {
+          setIsFetchingLinkedData(false);
       }
   };
 
@@ -77,10 +85,11 @@ const KPIs: React.FC = () => {
     return (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Math.random().toString(36).substring(2) + Date.now().toString(36);
   };
 
-  const handleOpenCreate = async () => {
+  const handleOpenCreate = () => {
     resetForm();
-    await fetchLinkingData();
     setIsCreateOpen(true);
+    // Fetch data asynchronously after opening
+    fetchLinkingData();
   };
 
   const handleOpenEdit = async (kpi: KPI) => {
@@ -95,18 +104,20 @@ const KPIs: React.FC = () => {
     setSelectedGoalIds(kpi.linkedGoalIds || []);
     setParentKpiId(kpi.parentKpiId || '');
     
-    await fetchLinkingData();
+    setIsCreateOpen(true); // Open first
     
+    // Then fetch and populate
+    setIsFetchingLinkedData(true);
     if (user?.role === 'department_head') {
-        // Pre-select children
         const children = await db.getDepartmentEmployeeKPIs();
         setAvailableChildKPIs(children);
-        // Children that have THIS KPI as parent
         const childIds = children.filter(c => c.parentKpiId === kpi.id).map(c => c.id);
         setSelectedChildKpiIds(childIds);
+    } else {
+        const parents = await db.getDepartmentKPIs();
+        setDepartmentKPIs(parents);
     }
-    
-    setIsCreateOpen(true);
+    setIsFetchingLinkedData(false);
   };
 
   const handleOpenUpdateProgress = (kpi: KPI) => {
@@ -484,9 +495,11 @@ const KPIs: React.FC = () => {
                                         value={parentKpiId} 
                                         onChange={e => setParentKpiId(e.target.value)}
                                         className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-primary outline-none bg-white"
-                                        disabled={isSaving}
+                                        disabled={isSaving || isFetchingLinkedData}
                                       >
-                                          <option value="">-- Select Parent KPI --</option>
+                                          <option value="">
+                                            {isFetchingLinkedData ? 'Loading Departments...' : '-- Select Parent KPI --'}
+                                          </option>
                                           {departmentKPIs.map(dp => (
                                               <option key={dp.id} value={dp.id}>{dp.name} ({dp.ownerName})</option>
                                           ))}

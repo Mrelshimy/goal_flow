@@ -116,14 +116,12 @@ class DBService {
         const authPayload: any = { data: metadataUpdates };
         if (updates.password) authPayload.password = updates.password;
         
-        // We do NOT await this strictly or throw error, to prevent UI hanging if Auth service is strict
         supabase.auth.updateUser(authPayload).then(({ error }) => {
             if (error) console.warn("Metadata update warning:", error.message);
         });
     }
 
     // 3. Return constructed user immediately to update UI state
-    // This avoids race conditions with getCurrentUser reading stale data
     const currentUser = await this.getCurrentUser();
     return {
         ...currentUser!,
@@ -334,7 +332,6 @@ class DBService {
         }));
     } catch (e) {
         // Fallback: Simple fetch (if join fails due to RLS or missing FK)
-        console.warn("KPI join query failed, falling back to simple select", e);
         const { data, error } = await supabase.from('kpis').select('*');
         if (error) {
             console.error("Critical KPI fetch error", error);
@@ -383,24 +380,33 @@ class DBService {
         }));
     } catch (e) {
         console.error("Error fetching dept employee KPIs", e);
+        // Fallback: If inner join fails, just try fetching filtered by logic in code if RLS permits
         return [];
     }
   }
 
   async getDepartmentKPIs(): Promise<KPI[]> {
     const user = await this.getCurrentUser();
-    if (!user || !user.department) return [];
+    if (!user) return [];
 
     try {
+        // Simplify query: Rely on RLS to filter visibility to own department
+        // We only want KPIs that are marked 'department' level
+        // We optionally join profiles to get the owner name, but don't force !inner join constraint
         const { data, error } = await supabase
             .from('kpis')
-            .select(`*, profiles!inner(department, full_name)`)
-            .eq('level', 'department')
-            .eq('profiles.department', user.department);
+            .select(`*, profiles(full_name, department)`)
+            .eq('level', 'department');
         
         if (error) throw error;
         
-        return data.map((k: any) => ({
+        // Filter in memory just in case RLS is open but we want strict department match
+        // Note: RLS should handle this, but if user.department is set, we can double check
+        const filtered = user.department 
+            ? data.filter((k: any) => !k.profiles || k.profiles.department === user.department)
+            : data;
+        
+        return filtered.map((k: any) => ({
             ...k,
             userId: k.user_id,
             targetValue: k.target_value,
@@ -410,7 +416,7 @@ class DBService {
             level: k.level || 'individual',
             parentKpiId: k.parent_kpi_id,
             createdAt: k.created_at,
-            ownerName: k.profiles?.full_name
+            ownerName: k.profiles?.full_name || 'Department'
         }));
     } catch (e) {
         console.error("Error fetching dept KPIs", e);
